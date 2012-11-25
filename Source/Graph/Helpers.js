@@ -667,5 +667,287 @@ var EdgeHelper = {
          (end code)
          */
         'contains': $.lambda(false)
+    },
+    /*
+     Object: EdgeHelper.quadratic
+     */
+    'quadratic': {
+        /*
+         Method: render
+
+         Renders a quadratic Bezier curve into the canvas.
+
+         Parameters:
+
+         from - (object) An *x*, *y* object with the starting position of the curve.
+         cp - (object) An *x*, *y* object with the control point of the curve.
+         to - (object) An *x*, *y* object with the ending position of the curve.
+         canvas - (object) A <Canvas> instance.
+
+         Example:
+         (start code js)
+         EdgeHelper.quadratic.render({ x: 10, y: 30 }, {x: 20, y: 40}, { x: 10, y: 50 }, viz.canvas);
+         (end code)
+         */
+        'render': function (from, cp, to, canvas) {
+            var ctx = canvas.getCtx();
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.quadraticCurveTo(cp.x, cp.y, to.x, to.y);
+            ctx.stroke();
+        },
+        /*
+         Method: contains
+
+         Returns *true* if *pos* is contained in the area of the shape. Returns *false* otherwise.
+
+         Parameters:
+
+         from - (object) An *x*, *y* object with a <Graph.Node> position.
+         cp - (object) An *x*, *y* object with the control point of the curve.
+         to - (object) An *x*, *y* object with a <Graph.Node> position.
+         pos - (object) An *x*, *y* object with the position to check.
+         epsilon - (number) The dimension of the shape.
+
+         Example:
+         (start code js)
+         EdgeHelper.quadratic.contains({ x: 10, y: 30 }, {x: 20, y: 20}, { x: 15, y: 35 }, { x: 15, y: 35 }, 30);
+         (end code)
+         */
+        'contains': function (from, cp, to, pos, epsilon) {
+            var dist = EdgeHelper.math.distanceToQuadraticBezier(pos.x, pos.y,
+                                                                   from.x, from.y,
+                                                                   cp.x, cp.y,
+                                                                   to.x, to.y);
+            return dist.dist < epsilon;
+        },
+        /*
+         Method: point
+
+         Returns a position on a quadratic Bezier curve.
+
+         Parameters:
+
+         from - (object) An *x*, *y* object with the starting position of the curve.
+         cp - (object) An *x*, *y* object with the control point of the curve.
+         to - (object) An *x*, *y* object with the ending position of the curve.
+         t - (number) A parameter for calculation of a point on the curve in between 0 to 1 inclusive.
+
+         Example:
+         (start code js)
+         EdgeHelper.quadratic.point({ x: 10, y: 30 }, {x: 20, y: 40}, { x: 10, y: 50 }, 0.5);
+         (end code)
+         */
+        'point': function (from, cp, to, t) {
+            return EdgeHelper.math.quadraticBezier(t, from.x, from.y, cp.x, cp.y, to.x, to.y);
+        }
+    },
+    'math': {
+        // (px1, py1): control point
+        'quadraticBezier': function(t, px0, py0, px1, py1, px2, py2) {
+            var a = (1 - t)*(1 - t);
+            var b = 2*t*(1 - t);
+            var c = t*t;
+            return {
+                x: a*px0 + b*px1 + c*px2,
+                y: a*py0 + b*py1 + c*py2
+            };
+        },
+
+        'distance': function(x1, y1, x2, y2) {
+            var dx = x1 - x2;
+            var dy = y1 - y2;
+            return Math.sqrt(dx*dx + dy*dy);
+        },
+
+        'filter': function(arr, pred, conv) {
+            var result = [];
+            var count = 0;
+            for (var i = 0; i < arr.length; i++){
+                if (pred(arr[i])) {
+                    result[count++] = conv(arr[i]);
+                }
+            }
+            return result;
+        },
+
+        'min': function(arr, comp) {
+            var result = arr[0];
+            for (var i = 1; i < arr.length; i++) {
+                if (comp(arr[i], result) < 0) {
+                    result = arr[i];
+                }
+            }
+            return result;
+        },
+
+        // (px1, py1): control point
+        'distanceToQuadraticBezier': function(x, y, px0, py0, px1, py1, px2, py2) {
+            // Helper
+            var m = EdgeHelper.math;
+            // dx(t)/dt = 2(a + bt) where x(t) = p0(1-t)^2 + 2t(1-t)p1 + p2t^2
+            var ax = px1 - px0;
+            var ay = py1 - py0;
+            var bx = px0 - 2*px1 + px2;
+            var by = py0 - 2*py1 + py2;
+            // p0 relative to (x, y)
+            var rx = px0 - x;
+            var ry = py0 - y;
+            // coefficients
+            var k3 = bx*bx + by*by;
+            var k2 = 3*(ax*bx + ay*by);
+            var k1 = 2*(ax*ax + ay*ay) + rx*bx + ry*by;
+            var k0 = rx*ax + ry*ay;
+            // Solve cubic equation
+            var cubicSols = m.solveRealCubicEq(k3, k2, k1, k0);
+            // Find the nearest point
+            var d0 = m.distance(x, y, px0, py0);
+            var d2 = m.distance(x, y, px2, py2);
+            var answer = m.min(
+                m.filter(cubicSols, function (t) {return t >= 0 && t <= 1;},
+                         function (t) {
+                             var pos = m.quadraticBezier(t, px0, py0, px1, py1, px2, py2);
+                             var dist = m.distance(x, y, pos.x, pos.y);
+                             return {t: t, pos: pos, dist: dist};
+                         }),
+                function (a, b) {return (a.dist - b.dist);}
+            );
+            if (answer != null) {
+                answer.debug = {cubicSols: cubicSols};
+                return answer;
+            }
+            answer = {t: 0, pos: {x: px0, y: py0}, dist: d0, debug: {cubicSols: cubicSols}};
+            if (d0 < d2) {
+                return answer;
+            } else {
+                answer.t = 1;
+                answer.pos = {x: px2, y: py2};
+                answer.dist = d2;
+                return answer;
+            }
+        },
+
+        // Solve k3x^3 + k2x^2 + k1x + k0 = 0
+        'solveRealCubicEq': function(k3, k2, k1, k0) {
+            var epsilon = 1e-10;
+            var sols = new Array();
+            var cubicRoot = function(x) {
+                return ((x >= 0) ? (Math.pow(x, 1/3)) : (-Math.pow(-x, 1/3)));
+            };
+            if (Math.abs(k3) > epsilon) {
+                var p = (3*k1*k3 - k2*k2)/(3*k3*k3);
+                var q = (k2*(2*k2*k2 - 9*k1*k3) + 27*k0*k3*k3)/(27*k3*k3*k3);
+                var D = -(4*p*p*p + 27*q*q); // Discriminant
+                var xlat = -k2/(3*k3); // Translation
+                if (D > epsilon*epsilon) {
+                    var r = 2*Math.sqrt(-p/3);
+                    var theta = Math.acos(Math.sqrt(-3/p)*3*q/(2*p))/3;
+                    sols[0] = xlat + r*Math.cos(theta);
+                    sols[1] = xlat + r*Math.cos(theta + 2*Math.PI/3);
+                    sols[2] = xlat + r*Math.cos(theta + 4*Math.PI/3);
+                } else if (D < -epsilon*epsilon) {
+                    var sqrtD = Math.sqrt(-D/27);
+                    sols[0] = xlat + cubicRoot((-q + sqrtD)/2) + cubicRoot((-q - sqrtD)/2);
+                } else {
+                    var u = -cubicRoot(q/2);
+                    sols[0] = xlat + 2*u;
+                    sols[1] = xlat - u;
+                }
+            } else if (Math.abs(k2) > epsilon){
+                var D = k1*k1 - 4*k2*k0;
+                if (D >= 0.0) { // D>0 => Two roots, D==0 => A multiple root counted as being two same roots, D<0 => None.
+                    sqrtD = Math.sqrt(D);
+                    sols[0] = (-k1 - sqrtD)/(2*k2);
+                    sols[1] = (-k1 + sqrtD)/(2*k2);
+                }
+            } else if (Math.abs(k1) > epsilon) {
+                sols[0] = -k0/k1;
+            }
+            return sols;
+        }
+
+    },
+    'test': {
+
+        'testSolveRealCubicEq': function(){
+            var delta = 0.000001;
+            var realsToString = function(arr, prec){
+                var s = "[", c = "";
+                for (var i = 0; i < arr.length; i++){
+                    s += c + arr[i].toPrecision(prec); c = ",";
+                }
+                s += "]";
+                return s;
+            };
+            var assertRealsInDelta = function (reals, expected) {
+                var prec = 12;
+                if (reals == null && expected == null) {
+                    return true;
+                }
+                if (reals == null || expected == null) {
+                    return false;
+                }
+                var messageItems = ["Assertion Fault:"];
+                if (reals.length != expected.length) {
+                    messageItems.push(realsToString(reals, prec));
+                    messageItems.push("!=");
+                    messageItems.push(realsToString(expected, prec));
+                    messageItems.push("(expected)");
+                    throw new Error(messageItems.join(""));
+                }
+                var result = true;
+                reals.sort();
+                expected.sort();
+                for (var i = 0; i < reals.length; i++) {
+                    if (Math.abs(reals[i] - expected[i]) >= delta) {
+                        result = false;
+                        messageItems.push(["[", i, "] ", reals[i].toPrecision(prec), "!=",
+                                           expected[i].toPrecision(prec), "(expected);"].join(""));
+                    }
+                }
+                if (!result) {
+                    throw new Error(messageItems.join(" "));
+                }
+                return result;
+            };
+            var sols = null;
+            var f = EdgeHelper.math.solveRealCubicEq;
+            assertRealsInDelta(f(0, 0, 0, 0), []);
+            assertRealsInDelta(f(0, 0, 0, 1), []);
+            assertRealsInDelta(f(0, 0, 1, -42), [42]);
+            assertRealsInDelta(f(0, 0, 2, 42), [-21]);
+            assertRealsInDelta(f(0, 1, 0, 1), []);
+            assertRealsInDelta(f(0, 1, 0, -25), [5.0, -5.0]);
+            assertRealsInDelta(f(0, 1, -2, 1), [1.0, 1.0]);
+            assertRealsInDelta(f(1, -3, 3, -1), [1.0, 1.0]); // D = 0
+            assertRealsInDelta(f(1, -6, 12, -8), [2.0, 2.0]); // D = 0
+            assertRealsInDelta(f(1, -5, 8, -4), [1.0, 2.0]); // D = 0
+            assertRealsInDelta(f(1, -6, 11, -6), [1.0, 2.0, 3.0]); // D = 4
+            assertRealsInDelta(f(60, -47, 12, -1), [1/3, 1/4, 1/5]); // D = 1/3240000
+            assertRealsInDelta(f(9261, -17199, 10647, -2197), [13/21, 13/21]); // D = 0
+            assertRealsInDelta(f(2985984, -5536512, 3421872, -704969), [89/144, 89/144]); // D = 0
+            assertRealsInDelta(f(10000000, 1490000, 61600, 441), [-0.009, -0.07]); // D = 0
+            assertRealsInDelta(f(10000000, 1490000, 61600, 441), [-0.009, -0.07]); // D = 0
+            assertRealsInDelta(f(9282, 17191, 10613, 2184), [-21/34, -13/21, -8/13]); // D = 1/7422774315714576
+        },
+
+        'testUtils': function() {
+            // TODO: Add some more tests.
+            alert(EdgeHelper.math.filter([11, 2, 12, 6, 14, 1, 5, 8], function(x){return (x%2 == 0);},
+                                           function(x){return [x, x.toPrecision(5)];}));
+            alert(EdgeHelper.math.min(
+                      EdgeHelper.math.filter([11, 2, 12, 6, 14, 1, 5, 8], function(x){return (x%2 == 0);},
+                                               function(x){return [x*x, x.toPrecision(5)];}),
+                      function (x, y) {
+                          return (x[0] % 7) - (y[0] % 7);
+                      }));
+        },
+
+        'run': function() {
+            EdgeHelper.test.testSolveRealCubicEq();
+            // EdgeHelper.test.testUtils();
+            return true;
+        }
+
     }
 };

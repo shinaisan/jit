@@ -548,6 +548,27 @@ $jit.ForceDirected.$extend = true;
             to = adj.nodeTo.pos.getc(true);
         return this.edgeHelper.arrow.contains(from, to, pos, this.edge.epsilon);
       }
+    },
+    'quadratic': {
+      'render': function(adj, canvas, animating) {
+        var from = adj.nodeFrom.pos.getc(true);
+        var to = adj.nodeTo.pos.getc(true);
+        var cp = adj.getData("controlPoint");
+        if (!cp || animating) {
+          cp = {
+            x: (from.x + to.x) / 2,
+            y: (from.y + to.y) / 2
+          };
+          adj.setData("controlPoint", cp);
+        }
+        this.edgeHelper.quadratic.render(from, cp, to, canvas);
+      },
+      'contains': function(adj, pos) {
+        var from = adj.nodeFrom.pos.getc(true);
+        var to = adj.nodeTo.pos.getc(true);
+        var cp = adj.getData("controlPoint");
+        return this.edgeHelper.quadratic.contains(from, cp, to, pos, this.edge.epsilon);
+      }
     }
   });
 
